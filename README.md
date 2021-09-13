@@ -40,3 +40,11 @@ await telemetryClient.ExecuteAsRequestAsync(new ExecuteAsRequestAsyncOptions(ope
 * `Action<IOperationHolder<RequestTelemetry>>? Configure` - if more telemetry details need to be added. Is called right before operations itself
 * `int? FlushWait` - time for telemetry to be pushed. Usefull for console apps. In secondss - default 15
 * `Action? PostExecute` - is called after an operation just before operation.Dispose(). That means logs will still be attached to the RequestTelemetry and method execution time will be included
+
+## HttpResponseTelemetryInitializer
+Enrich telemetry with response content to dependency http requests.
+```
+services.AddSingleton<ITelemetryInitializer>(
+    new HttpResponseTelemetryInitializer(
+        c => c.StatusCode >= HttpStatusCode.BadRequest))
+```
