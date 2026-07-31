@@ -10,6 +10,7 @@ namespace Likvido.Telemetry.Tests;
 /// motivated the package: it is the combination that <c>DOTNET_RUNNING_IN_CONTAINER</c> could not
 /// distinguish from a deployed workload.
 /// </summary>
+[Collection(EnvironmentCollection.Name)]
 public class IsDeployedWorkloadTests
 {
     [Fact]
@@ -92,9 +93,10 @@ public class IsDeployedWorkloadTests
 }
 
 /// <summary>
-/// These tests mutate process-wide environment variables. Keeping them in a single class puts them
-/// in one xunit collection, so they run sequentially and cannot race each other.
+/// Mutates process-wide environment variables, hence the shared collection — see
+/// <see cref="EnvironmentCollection"/>.
 /// </summary>
+[Collection(EnvironmentCollection.Name)]
 public class AddLikvidoOtlpLoggingTests
 {
     [Fact]
