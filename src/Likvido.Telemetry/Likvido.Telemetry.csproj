@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/Likvido/Likvido.Telemetry</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+    </PropertyGroup>
+
+    <Import Project="$(ProjectDir)../version.props" />
+
+    <ItemGroup>
+        <PackageReference Include="Grafana.OpenTelemetry" Version="1.11.0" />
+        <PackageReference Include="JetBrains.Annotations" Version="2026.2.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- So the gate can be tested as a pure function, without a cluster or process-wide env vars. -->
+        <InternalsVisibleTo Include="Likvido.Telemetry.Tests" />
+    </ItemGroup>
+
+</Project>
