@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Logs;
 using Shouldly;
 using Xunit;
 
@@ -148,6 +150,21 @@ public class AddLikvidoOtlpLoggingTests
     }
 
     [Fact]
+    public void TheDeploymentEnvironmentComesFromTheResourceAttributes()
+    {
+        // ⚠️ Regression guard: the Grafana distribution overrides OTEL_RESOURCE_ATTRIBUTES with its own
+        // deployment.environment, "production" for a workload that runs as Production, as ours do in staging too.
+        DeploymentEnvironment("service.namespace=test,deployment.environment=staging").ShouldBe("staging");
+    }
+
+    [Fact]
+    public void WithoutAnEnvironmentInTheResourceAttributes_TheDistributionsDefaultStays()
+    {
+        DeploymentEnvironment(resourceAttributes: null).ShouldBe("production");
+        DeploymentEnvironment("service.namespace=test").ShouldBe("production");
+    }
+
+    [Fact]
     public void TheServiceNameIsRequired()
     {
         Should.Throw<ArgumentException>(
@@ -165,28 +182,87 @@ public class AddLikvidoOtlpLoggingTests
     private static ILoggerFactory BuildLoggerFactory(
         string? kubernetesServiceHost,
         string? gitHubActions = null,
-        string? hostname = "test-pod")
+        string? hostname = "test-pod") =>
+        BuildServiceProvider(kubernetesServiceHost, gitHubActions, hostname).GetRequiredService<ILoggerFactory>();
+
+    /// <summary>The deployment.environment a pod with these resource attributes exports.</summary>
+    private static string? DeploymentEnvironment(string? resourceAttributes)
     {
-        var originalServiceHost = Environment.GetEnvironmentVariable("KUBERNETES_SERVICE_HOST");
-        var originalGitHubActions = Environment.GetEnvironmentVariable("GITHUB_ACTIONS");
-        var originalHostname = Environment.GetEnvironmentVariable("HOSTNAME");
+        var services = BuildServiceProvider(
+            kubernetesServiceHost: "172.19.0.1",
+            gitHubActions: null,
+            hostname: "test-pod",
+            resourceAttributes: resourceAttributes);
+
+        // The provider is built on first use, while the variables are still set.
+        return services.GetRequiredService<LoggerProvider>().GetResource().Attributes
+            .Single(attribute => attribute.Key == "deployment.environment")
+            .Value as string;
+    }
+
+    private static ServiceProvider BuildServiceProvider(
+        string? kubernetesServiceHost,
+        string? gitHubActions,
+        string? hostname,
+        string? resourceAttributes = null)
+    {
+        string[] names =
+        [
+            "KUBERNETES_SERVICE_HOST", "GITHUB_ACTIONS", "HOSTNAME", "OTEL_RESOURCE_ATTRIBUTES",
+            "ASPNETCORE_ENVIRONMENT", "DOTNET_ENVIRONMENT"
+        ];
+        var originals = names.ToDictionary(name => name, Environment.GetEnvironmentVariable);
 
         try
         {
             Environment.SetEnvironmentVariable("KUBERNETES_SERVICE_HOST", kubernetesServiceHost);
             Environment.SetEnvironmentVariable("GITHUB_ACTIONS", gitHubActions);
             Environment.SetEnvironmentVariable("HOSTNAME", hostname);
+            Environment.SetEnvironmentVariable("OTEL_RESOURCE_ATTRIBUTES", resourceAttributes);
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", null);
+            Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", null);
 
-            return new ServiceCollection()
+            var services = new ServiceCollection()
                 .AddLogging(logging => logging.AddLikvidoOtlpLogging("test-app"))
-                .BuildServiceProvider()
-                .GetRequiredService<ILoggerFactory>();
+                .BuildServiceProvider();
+
+            // Resolved here, while the variables are set: the Grafana settings read them when the provider is built.
+            services.GetRequiredService<ILoggerFactory>();
+
+            return services;
         }
         finally
         {
-            Environment.SetEnvironmentVariable("KUBERNETES_SERVICE_HOST", originalServiceHost);
-            Environment.SetEnvironmentVariable("GITHUB_ACTIONS", originalGitHubActions);
-            Environment.SetEnvironmentVariable("HOSTNAME", originalHostname);
+            foreach (var (name, value) in originals)
+            {
+                Environment.SetEnvironmentVariable(name, value);
+            }
         }
+    }
+}
+
+/// <summary>The parsing of <c>OTEL_RESOURCE_ATTRIBUTES</c>, as a pure function.</summary>
+public class DeploymentEnvironmentFromTests
+{
+    [Theory]
+    [InlineData("deployment.environment=staging", "staging")]
+    [InlineData("service.namespace=mcp,deployment.environment=production", "production")]
+    [InlineData(" deployment.environment = staging , service.namespace=mcp", "staging")]
+    [InlineData("deployment.environment=pre%20prod", "pre prod")]
+    public void TheEnvironmentIsRead(string resourceAttributes, string expected)
+    {
+        LikvidoTelemetry.DeploymentEnvironmentFrom(resourceAttributes).ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("service.namespace=mcp")]
+    [InlineData("deployment.environment=")]
+    [InlineData("deployment.environment.name=staging")]
+    [InlineData("=staging")]
+    public void WithoutAnEnvironmentThereIsNone(string? resourceAttributes)
+    {
+        LikvidoTelemetry.DeploymentEnvironmentFrom(resourceAttributes).ShouldBeNull();
     }
 }

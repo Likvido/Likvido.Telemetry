@@ -27,6 +27,8 @@ public static class LikvidoTelemetry
     private const string KubernetesServiceHostVariable = "KUBERNETES_SERVICE_HOST";
     private const string GitHubActionsVariable = "GITHUB_ACTIONS";
     private const string HostnameVariable = "HOSTNAME";
+    private const string ResourceAttributesVariable = "OTEL_RESOURCE_ATTRIBUTES";
+    private const string DeploymentEnvironmentAttribute = "deployment.environment";
 
     /// <summary>
     /// Whether this process is a deployed Likvido workload, and should therefore export its logs to
@@ -91,6 +93,9 @@ public static class LikvidoTelemetry
             options.UseGrafana(settings =>
             {
                 settings.ServiceName = serviceName;
+                settings.DeploymentEnvironment =
+                    DeploymentEnvironmentFrom(Environment.GetEnvironmentVariable(ResourceAttributesVariable))
+                    ?? settings.DeploymentEnvironment;
                 settings.ResourceAttributes.Add("k8s.pod.name", ResolvePodName());
                 settings.ExporterSettings = new AgentOtlpExporter
                 {
@@ -101,6 +106,41 @@ public static class LikvidoTelemetry
 
             options.IncludeScopes = true;
         });
+    }
+
+    /// <summary>
+    /// The <c>deployment.environment</c> entry of <c>OTEL_RESOURCE_ATTRIBUTES</c>, or <see langword="null"/> without
+    /// one.
+    /// <para>
+    /// ⚠️ The Grafana distribution sets <c>deployment.environment</c> itself, from <c>ASPNETCORE_ENVIRONMENT</c> or
+    /// <c>DOTNET_ENVIRONMENT</c> and otherwise <c>production</c>, and that overrides <c>OTEL_RESOURCE_ATTRIBUTES</c>.
+    /// Our workloads run as <c>Production</c> in both clusters, so without this a staging manifest's
+    /// <c>deployment.environment=staging</c> would be logged as <c>production</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="resourceAttributes">Comma-separated <c>key=value</c> pairs, with percent-encoded values.</param>
+    internal static string? DeploymentEnvironmentFrom(string? resourceAttributes)
+    {
+        if (string.IsNullOrWhiteSpace(resourceAttributes))
+        {
+            return null;
+        }
+
+        foreach (var pair in resourceAttributes.Split(','))
+        {
+            var separator = pair.IndexOf('=');
+
+            if (separator <= 0 || pair[..separator].Trim() != DeploymentEnvironmentAttribute)
+            {
+                continue;
+            }
+
+            var value = Uri.UnescapeDataString(pair[(separator + 1)..].Trim());
+
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+
+        return null;
     }
 
     /// <summary>
