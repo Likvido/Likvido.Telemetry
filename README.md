@@ -16,6 +16,14 @@ builder.Logging.AddLikvidoOtlpLogging("my-service");
 The `serviceName` becomes the `service_name` label in Loki, and therefore the name alert rules
 match on.
 
+## Deployment environment
+
+The `deployment.environment` resource attribute is taken from `OTEL_RESOURCE_ATTRIBUTES`, as each
+manifest sets it (`deployment.environment=staging` or `production`). The Grafana distribution would
+otherwise set it from `ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT`, and to `production` without
+either; our workloads run as `Production` in both clusters. Without the attribute in
+`OTEL_RESOURCE_ATTRIBUTES`, the distribution's value stays.
+
 ## When it exports
 
 `AddLikvidoOtlpLogging` is a no-op unless `LikvidoTelemetry.IsDeployedWorkload()` is true, so it is
